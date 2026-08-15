@@ -46,7 +46,13 @@ export interface BaileysConnectionWebhookPayload {
   data:
     | BaileysEventMap[keyof BaileysEventMap]
     | (BaileysEventMap["connection.update"] & { epoch?: number })
-    | { error: string };
+    | {
+        error: string;
+        // Present on reconnect_loop_detected when the phone entered
+        // quarantine: consecutive failed reconnect cycles and when background
+        // claims will retry. Explicit POST /connections retries immediately.
+        quarantine?: { strikes: number; until: string };
+      };
   extra?: unknown;
   // Set on every webhook produced by the history-import backfill path so
   // the consumer can suppress live-only side effects (notifications,
