@@ -20,6 +20,11 @@ export interface BaileysConnectionOptions {
   historyImportDays?: number;
   groupsEnabled?: boolean;
   autoPresenceSubscribe?: boolean;
+  // How an unpaired connection is linked: "qr" (default) sends `qrDataUrl` on
+  // connection.update; "code" asks WhatsApp for an 8-character pairing code for
+  // this phone number instead, typed on the phone under Linked devices → Link
+  // with phone number. In memory only: it matters while pairing, never after.
+  pairingMode?: "qr" | "code";
   apiKeyHash?: string;
   isReconnect?: boolean;
   // Import/takeover: discard any live socket and spawn a fresh one so the newly

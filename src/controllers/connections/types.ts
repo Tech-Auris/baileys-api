@@ -153,6 +153,16 @@ export const connectionOptionsSchema = {
   ),
 } as const;
 
+// POST /:phoneNumber only: an import-session already carries a linked device,
+// so there is nothing to pair there.
+export const pairingMode = t.Optional(
+  t.Union([t.Literal("qr"), t.Literal("code")], {
+    description:
+      'How an unpaired connection is linked. "qr" (default) sends `qrDataUrl` on connection.update. "code" sends `pairingCode` instead: 8 characters to type on the phone under Linked devices → Link with phone number, valid for this connection\'s phone number only. Each request while pairing starts a fresh pairing (a new code), and switching back to "qr" does too. Ignored once the connection is paired.',
+    default: "qr",
+  }),
+);
+
 export const iMessageKey = t.Object({
   id: t.Optional(t.String()),
   remoteJid: t.Optional(t.String()),

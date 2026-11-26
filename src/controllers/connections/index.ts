@@ -32,6 +32,7 @@ import {
   groupJid,
   iMessageKey,
   iMessageKeyWithId,
+  pairingMode,
   phoneNumberParams,
   userJid,
 } from "./types";
@@ -230,6 +231,7 @@ const connectionsController = new Elysia({
       params: phoneNumberParams,
       body: t.Object({
         ...connectionOptionsSchema,
+        pairingMode,
       }),
       detail: {
         responses: {

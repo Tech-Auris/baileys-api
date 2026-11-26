@@ -652,6 +652,70 @@ describe("connectionsController restriction diagnostics", () => {
   });
 });
 
+describe("connectionsController connect pairingMode", () => {
+  let prevEnv: typeof config.env;
+  let prevRole: typeof config.cluster.role;
+
+  beforeEach(() => {
+    prevEnv = config.env;
+    prevRole = config.cluster.role;
+    config.env = "development";
+    config.cluster.role = "standalone";
+  });
+
+  afterEach(() => {
+    config.env = prevEnv;
+    config.cluster.role = prevRole;
+  });
+
+  const connectRequest = (body: unknown) =>
+    new Request("http://localhost/connections/+551234567890", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  const webhook = {
+    webhookUrl: "http://localhost:3026/whatsapp/+551234567890",
+    webhookVerifyToken: "verify",
+  };
+
+  it("hands the pairing mode to the coordinator", async () => {
+    const spy = spyOn(coordinator, "connectWithLease").mockResolvedValue(
+      undefined,
+    );
+    try {
+      const app = new Elysia().use(connectionsController);
+      const res = await app.handle(
+        connectRequest({ ...webhook, pairingMode: "code" }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(spy).toHaveBeenCalledWith(
+        "+551234567890",
+        expect.objectContaining({ pairingMode: "code" }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("rejects an unknown pairing mode", async () => {
+    const spy = spyOn(coordinator, "connectWithLease");
+    try {
+      const app = new Elysia().use(connectionsController);
+      const res = await app.handle(
+        connectRequest({ ...webhook, pairingMode: "sms" }),
+      );
+
+      expect(res.status).toBe(422);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("connectionsController import-session", () => {
   let prevEnv: typeof config.env;
   let prevRole: typeof config.cluster.role;
