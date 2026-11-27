@@ -51,6 +51,23 @@ describe("useRedisAuthState", () => {
     expect(state.creds.registrationId).toBe(99999);
   });
 
+  // requestPairingCode writes creds.me before the phone confirms; resuming that
+  // would log in as a device WhatsApp never linked.
+  it("starts over from an unconfirmed pairing code", async () => {
+    const pendingCreds = {
+      registrationId: 99999,
+      me: { id: "5511999@s.whatsapp.net", name: "~" },
+      pairingCode: "ABCD1234",
+      registered: false,
+    };
+    const key = "@baileys-api:connections:pending-code:authState";
+    mockRedisData.set(key, new Map([["creds", JSON.stringify(pendingCreds)]]));
+
+    const { state } = await useRedisAuthState("pending-code");
+    expect(initAuthCreds).toHaveBeenCalledTimes(1);
+    expect(state.creds.registrationId).toBe(12345);
+  });
+
   it("stores metadata when creating state", async () => {
     const metadata = { webhookUrl: "https://example.com", clientName: "Test" };
     await useRedisAuthState("meta-phone", metadata);
@@ -466,6 +483,24 @@ describe("isRedisAuthStatePaired", () => {
   it("returns false when pairing never completed", async () => {
     setCreds("unpaired", { registrationId: 1 });
     expect(await isRedisAuthStatePaired("unpaired")).toBe(false);
+  });
+
+  it("returns false while a pairing code waits for the phone", async () => {
+    setCreds("pending-code", {
+      me: { id: "5511999@s.whatsapp.net", name: "~" },
+      pairingCode: "ABCD1234",
+      registered: false,
+    });
+    expect(await isRedisAuthStatePaired("pending-code")).toBe(false);
+  });
+
+  it("returns true once the phone confirmed the pairing code", async () => {
+    setCreds("paired-code", {
+      me: { id: "5511999:3@s.whatsapp.net" },
+      pairingCode: "ABCD1234",
+      registered: true,
+    });
+    expect(await isRedisAuthStatePaired("paired-code")).toBe(true);
   });
 
   it("returns false when there are no creds at all", async () => {

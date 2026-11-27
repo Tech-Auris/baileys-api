@@ -215,6 +215,7 @@ export class BaileysConnection {
   private LOGGER_OMIT_KEYS: ReadonlyArray<string> = [
     "qr",
     "qrDataUrl",
+    "pairingCode",
     "fileSha256",
     "jpegThumbnail",
     "fileEncSha256",
@@ -309,6 +310,11 @@ export class BaileysConnection {
   private _lastTrafficAt: number | null = null;
   private groupsEnabled: boolean;
   private autoPresenceSubscribe: boolean;
+  private pairingMode: "qr" | "code";
+  // How the CURRENT socket is being paired: null until it emits its first QR,
+  // then "qr" or "code". Reset with every new socket, so it never outlives the
+  // pairing it describes (a successful pairing restarts the socket).
+  private _pairingStage: "qr" | "code" | null = null;
   private _apiKeyHash: string | null;
   private groupActivityMap: Map<
     string,
@@ -426,8 +432,13 @@ export class BaileysConnection {
       options.syncFullHistory ?? this.historyImportDays > 0;
     this.groupsEnabled = options.groupsEnabled ?? true;
     this.autoPresenceSubscribe = options.autoPresenceSubscribe ?? false;
+    this.pairingMode = options.pairingMode ?? "qr";
     this._apiKeyHash = options.apiKeyHash ?? null;
     this.leaseEpoch = options.leaseEpoch ?? null;
+  }
+
+  get pairingStage(): "qr" | "code" | null {
+    return this._pairingStage;
   }
 
   get apiKeyHash(): string | null {
@@ -485,6 +496,7 @@ export class BaileysConnection {
       syncFullHistory: this.syncFullHistory,
       groupsEnabled: this.groupsEnabled,
       autoPresenceSubscribe: this.autoPresenceSubscribe,
+      pairingMode: this.pairingMode,
       ...(this._apiKeyHash !== null && { apiKeyHash: this._apiKeyHash }),
       leaseEpoch: this.leaseEpoch,
     };
@@ -742,6 +754,7 @@ export class BaileysConnection {
     }
 
     this.autoPresenceSubscribe = options.autoPresenceSubscribe ?? false;
+    this.pairingMode = options.pairingMode ?? "qr";
     this._apiKeyHash = options.apiKeyHash ?? this._apiKeyHash;
     // A reused connection may have been re-leased under a newer epoch (e.g. a
     // force-acquire on POST /connections); stale epochs would get the
@@ -890,6 +903,7 @@ export class BaileysConnection {
 
     try {
       this.socket = makeWASocket(socketOptions);
+      this._pairingStage = null;
       // An existing session hands back its account JIDs immediately. Read them
       // now so they outlive the socket; see ownJidsSeen.
       this.ownJids();
@@ -1988,7 +2002,13 @@ export class BaileysConnection {
   }
 
   sendPresenceUpdate(type: WAPresence, toJid?: string | undefined) {
-    if (!this.safeSocket().authState.creds.me) {
+    // requestPairingCode sets creds.me before the phone ever confirms, so `me`
+    // alone does not mean paired while a code is on screen. A presence there
+    // would echo `isOnline` and report the connection open.
+    if (
+      !this.safeSocket().authState.creds.me ||
+      this._pairingStage === "code"
+    ) {
       return;
     }
 
@@ -2493,7 +2513,21 @@ export class BaileysConnection {
       }
     }
 
-    if (qr) {
+    if (qr && this.pairingMode === "code") {
+      // Baileys keeps rotating QRs while the code is pending; none of them may
+      // reach the client in this mode. The code is asked for once per socket:
+      // asking again would replace the one already on screen.
+      delete data.qr;
+      if (this._pairingStage === "code") {
+        return;
+      }
+      const pairingCode = await this.safeSocket().requestPairingCode(
+        this.phoneNumber.replace(/^\+/, ""),
+      );
+      this._pairingStage = "code";
+      Object.assign(data, { connection: "connecting", pairingCode });
+    } else if (qr) {
+      this._pairingStage = "qr";
       Object.assign(data, {
         connection: "connecting",
         qrDataUrl: await toDataURL(qr),

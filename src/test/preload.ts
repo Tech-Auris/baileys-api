@@ -594,6 +594,7 @@ function createMockSocket() {
     logout: mock(async () => {}),
     sendMessage: mock(async () => ({ key: { id: "sent-1" } })),
     sendPresenceUpdate: mock(async () => {}),
+    requestPairingCode: mock(async () => "ABCD1234"),
     readMessages: mock(async () => {}),
     chatModify: mock(async () => {}),
     fetchMessageHistory: mock(async () => {}),

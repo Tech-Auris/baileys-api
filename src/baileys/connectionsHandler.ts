@@ -428,10 +428,20 @@ export class BaileysConnectionsHandler {
 
       const existing = this.connections[phoneNumber];
 
+      // Pairing by code also needs a fresh socket while the phone is still
+      // pairing: the code is issued on a socket's first QR, so each request for
+      // one (the first, or a new one after it expired) restarts the QR cycle and
+      // gets the full window, and going back to the QR leaves a socket whose
+      // QRs are being withheld.
+      const pairingStage = existing?.pairingStage ?? null;
+      const restartPairing =
+        pairingStage !== null &&
+        (connectOptions.pairingMode === "code" || pairingStage === "code");
+
       // A just-seeded import/takeover must run on a fresh socket: an existing one
       // holds stale in-memory creds and would ignore the transplanted session
       // (e.g. a QR socket keeps emitting QRs). Discard it, then spawn anew.
-      if (existing && forceRestart) {
+      if (existing && (forceRestart || restartPairing)) {
         existing.discard();
         delete this.connections[phoneNumber];
         // Keep shutdown-drain accounting exactly like discardConnection: a

@@ -5353,6 +5353,80 @@ describe("BaileysConnection", () => {
         expect(body.data.qrDataUrl).toBe("data:image/png;base64,qrcode");
       });
 
+      describe("pairingMode: code", () => {
+        beforeEach(async () => {
+          connection = new BaileysConnection("+5511999999999", {
+            ...defaultOptions,
+            pairingMode: "code",
+          });
+          await connection.connect();
+          mockSocket.requestPairingCode.mockClear();
+        });
+
+        it("sends a pairing code for the connection's number instead of the QR", async () => {
+          const handler = mockEventHandlers.get("connection.update")!;
+          await handler({ qr: "qr-string-123" });
+
+          expect(mockSocket.requestPairingCode).toHaveBeenCalledWith(
+            "5511999999999",
+          );
+          expect(fetchCalls.length).toBe(1);
+          const body = JSON.parse(fetchCalls[0].body);
+          expect(body.data.connection).toBe("connecting");
+          expect(body.data.pairingCode).toBe("ABCD1234");
+          expect(body.data.qrDataUrl).toBeUndefined();
+          expect(body.data.qr).toBeUndefined();
+          expect(connection.pairingStage).toBe("code");
+        });
+
+        it("asks for the code once and withholds the rotating QRs", async () => {
+          const handler = mockEventHandlers.get("connection.update")!;
+          await handler({ qr: "qr-string-1" });
+          await handler({ qr: "qr-string-2" });
+
+          expect(mockSocket.requestPairingCode).toHaveBeenCalledTimes(1);
+          expect(fetchCalls.length).toBe(1);
+        });
+
+        it("asks again on the next QR when the request failed", async () => {
+          mockSocket.requestPairingCode.mockRejectedValueOnce(
+            new Error("socket closed"),
+          );
+          const handler = mockEventHandlers.get("connection.update")!;
+          await handler({ qr: "qr-string-1" });
+          await handler({ qr: "qr-string-2" });
+
+          expect(mockSocket.requestPairingCode).toHaveBeenCalledTimes(2);
+          expect(fetchCalls.length).toBe(1);
+          expect(JSON.parse(fetchCalls[0].body).data.pairingCode).toBe(
+            "ABCD1234",
+          );
+        });
+
+        // requestPairingCode sets creds.me before the phone confirms, so the
+        // presence guard alone would let an `isOnline` echo report it open.
+        it("sends no presence while the code is pending", async () => {
+          const handler = mockEventHandlers.get("connection.update")!;
+          await handler({ qr: "qr-string-123" });
+          mockSocket.sendPresenceUpdate.mockClear();
+
+          await connection.sendPresenceUpdate("available");
+
+          expect(mockSocket.sendPresenceUpdate).not.toHaveBeenCalled();
+        });
+
+        it("goes back to the QR once the options ask for it", async () => {
+          await connection.updateOptions(defaultOptions);
+          const handler = mockEventHandlers.get("connection.update")!;
+          await handler({ qr: "qr-string-123" });
+
+          expect(mockSocket.requestPairingCode).not.toHaveBeenCalled();
+          const body = JSON.parse(fetchCalls[0].body);
+          expect(body.data.qrDataUrl).toBe("data:image/png;base64,qrcode");
+          expect(connection.pairingStage).toBe("qr");
+        });
+      });
+
       it("sends open state and resets reconnect count", async () => {
         const handler = mockEventHandlers.get("connection.update")!;
         await handler({ connection: "open", isOnline: true });

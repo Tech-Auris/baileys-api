@@ -257,8 +257,15 @@ export async function useRedisAuthState(
     return data ? JSON.parse(data, BufferJSON.reviver) : null;
   };
 
+  const stored: AuthenticationCreds | null = await readData(
+    "authState",
+    "creds",
+  );
+  // A pairing code the phone never confirmed cannot be resumed: Baileys would
+  // log in as the device requestPairingCode named in creds.me, which WhatsApp
+  // never linked. Start that pairing over instead.
   const creds: AuthenticationCreds =
-    (await readData("authState", "creds")) || initAuthCreds();
+    stored && !isPendingPairingCode(stored) ? stored : initAuthCreds();
 
   // Skipped entirely when no metadata was given: JSON.stringify(undefined)
   // is undefined, which is not a valid hash value (and would clobber the
@@ -321,6 +328,16 @@ export async function useRedisAuthState(
   };
 }
 
+// requestPairingCode sets creds.me (and pairingCode) the moment the code is
+// asked for; WhatsApp marks the creds registered only once it is typed on the
+// phone. Until then `me` is a name, not a linked device.
+function isPendingPairingCode(creds: {
+  pairingCode?: string;
+  registered?: boolean;
+}): boolean {
+  return Boolean(creds.pairingCode) && !creds.registered;
+}
+
 // A paired auth state has registered with WhatsApp (creds.me is set after the
 // QR scan completes). Unpaired states have nothing to resume — reconnecting
 // them only generates a fresh QR nobody is looking at.
@@ -330,8 +347,12 @@ export async function isRedisAuthStatePaired(id: string): Promise<boolean> {
     return false;
   }
   try {
-    const creds = JSON.parse(data) as { me?: { id?: string } };
-    return Boolean(creds?.me?.id);
+    const creds = JSON.parse(data) as {
+      me?: { id?: string };
+      pairingCode?: string;
+      registered?: boolean;
+    };
+    return Boolean(creds?.me?.id) && !isPendingPairingCode(creds);
   } catch {
     return false;
   }

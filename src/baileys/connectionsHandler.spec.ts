@@ -78,6 +78,7 @@ class MockBaileysConnection {
   sendState: "unknown" | "ok" | "degraded" | "stalled" = "unknown";
   receiveState: "pending" | "ok" | "stalled" = "pending";
   openForMs: number | null = null;
+  pairingStage: "qr" | "code" | null = null;
   // True by default because that is the only state from which the real
   // connection ever calls requestRestart: handleSendStall sets it immediately
   // before. Examples flip it to false to model recovery arriving while the
@@ -357,6 +358,67 @@ describe("BaileysConnectionsHandler", () => {
       expect(mockConnect).toHaveBeenCalledTimes(1);
       expect(mockSendPresenceUpdate).not.toHaveBeenCalled();
       expect(mockUpdateOptions).not.toHaveBeenCalled();
+    });
+
+    describe("pairing by code", () => {
+      const pairingWith = async (stage: "qr" | "code" | null) => {
+        await handler.connect("+5511999", defaultOptions);
+        mockConnectionInstances.get("+5511999").pairingStage = stage;
+        mockConnect.mockClear();
+        mockDiscard.mockClear();
+        mockSendPresenceUpdate.mockClear();
+      };
+
+      it("restarts a socket showing the QR when a code is asked for", async () => {
+        await pairingWith("qr");
+
+        await handler.connect("+5511999", {
+          ...defaultOptions,
+          pairingMode: "code",
+        });
+
+        expect(mockDiscard).toHaveBeenCalledTimes(1);
+        expect(mockConnect).toHaveBeenCalledTimes(1);
+        expect(
+          mockConnectionInstances.get("+5511999").options.pairingMode,
+        ).toBe("code");
+      });
+
+      it("restarts a socket showing a code, for a new code or for the QR", async () => {
+        await pairingWith("code");
+        await handler.connect("+5511999", {
+          ...defaultOptions,
+          pairingMode: "code",
+        });
+        expect(mockDiscard).toHaveBeenCalledTimes(1);
+
+        mockConnectionInstances.get("+5511999").pairingStage = "code";
+        await handler.connect("+5511999", defaultOptions);
+        expect(mockDiscard).toHaveBeenCalledTimes(2);
+        expect(mockConnect).toHaveBeenCalledTimes(2);
+      });
+
+      it("keeps reusing a socket showing the QR when the QR is asked for", async () => {
+        await pairingWith("qr");
+
+        await handler.connect("+5511999", defaultOptions);
+
+        expect(mockDiscard).not.toHaveBeenCalled();
+        expect(mockSendPresenceUpdate).toHaveBeenCalledTimes(1);
+      });
+
+      it("never restarts a connection that is not pairing", async () => {
+        await pairingWith(null);
+
+        await handler.connect("+5511999", {
+          ...defaultOptions,
+          pairingMode: "code",
+        });
+
+        expect(mockDiscard).not.toHaveBeenCalled();
+        expect(mockConnect).not.toHaveBeenCalled();
+        expect(mockSendPresenceUpdate).toHaveBeenCalledTimes(1);
+      });
     });
 
     it("handles inconsistent connection state when sendPresenceUpdate throws BaileysNotConnectedError", async () => {
